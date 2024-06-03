@@ -1,0 +1,7 @@
+[package]
+name = "bevy_init_marker"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bevy_ecs = "0.13.2"
