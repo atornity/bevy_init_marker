@@ -1,4 +1,4 @@
-A Marker `Resource` for *something* that has been initialized.
+A marker `Resource` for *something* that has been initialized.
 
 Usefull if you need to add a system after the app has started but want to ensure that it only happens once (since there is no way to know if the system has already been added otherwise).
 
@@ -27,6 +27,6 @@ if Initialized::init_systems(&mut world, Update, my_system) {
 }
 
 if Initialized::init_systems(&mut world, Update, my_system) {
-    unreachable!("my_system is already initialized in Update so this will never run");
+    unreachable!("my_system has already been initialized in Update so this will never run");
 }
 ```
