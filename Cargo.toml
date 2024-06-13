@@ -2,6 +2,10 @@
 name = "bevy_init_marker"
 version = "0.1.0"
 edition = "2021"
+license = "MIT OR Apache-2.0"
+keywords = ["bevy", "gamedev", "helpers"]
+description = "A marker `Resource` for *something* that has been initialized."
+repository = "https://github.com/atornity/bevy_init_marker"
 
 [dependencies]
 bevy_ecs = "0.13.2"
