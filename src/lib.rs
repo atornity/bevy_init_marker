@@ -1,7 +1,7 @@
 use std::{fmt::Debug, marker::PhantomData};
 
 use bevy_ecs::{
-    schedule::{IntoSystemConfigs, ScheduleLabel, Schedules},
+    schedule::{IntoSystemConfigs, Schedule, ScheduleLabel, Schedules},
     system::Resource,
     world::World,
 };
@@ -9,15 +9,16 @@ use bevy_reflect::Reflect;
 
 /// A Marker [`Resource`] for *something* that has been initialized.
 ///
-/// Usefull if you need to add a system after the app has started but want to ensure that it only happens once (since there is no way to know if the system has already been added).
+/// Usefull if you need to add a system after the app has started but want to ensure that it only happens once (since there is no way to know if the system has already been added otherwise).
 ///
 /// # Examples
 ///
-/// ```rust
+/// ```
 /// # use bevy_init_marker::Initialized;
 /// # use bevy::prelude::*;
 /// #
 /// # let mut world = World::new();
+/// # world.init_resource::<Schedules>();
 /// #
 /// struct MyMarker;
 ///
@@ -89,16 +90,14 @@ impl<M: Send + Sync + 'static> Initialized<M> {
     }
 }
 
-impl<Marker, S> Initialized<(S, Marker)>
-where
-    S: IntoSystemConfigs<Marker> + Send + Sync + 'static,
-    Marker: Send + Sync + 'static,
-{
-    /// Initialize the `systems` if it hasn't been initialized for the `schedule` yet.
-    ///
-    /// This will not work as expected if the `systems` have already been added to the `schedule` by other means.
+impl Initialized<()> {
+    /// Initialize the `systems` if they hasn't been initialized for the `schedule` yet.
     ///
     /// See also [`Initialized::init`].
+    ///
+    /// # Panics
+    ///
+    /// Panics if the [`Schedules`] resource does not exist int the `world`.
     ///
     /// # Example
     ///
@@ -107,9 +106,7 @@ where
     /// # use bevy::prelude::*;
     /// #
     /// # let mut world = World::new();
-    /// #
-    /// # let mut schedule = Schedule::default();
-    /// # let mut schedule = schedule.add_systems(init_system::<MyMarker>);
+    /// # world.init_resource::<Schedules>();
     /// #
     /// fn my_system() {
     ///     // do stuff
@@ -119,16 +116,97 @@ where
     ///     println!("initialized my_system!");
     /// }
     /// ```
+    ///
+    /// # Quirks
+    ///
+    /// ```
+    /// # use bevy_init_marker::Initialized;
+    /// # use bevy::prelude::*;
+    /// #
+    /// # let mut app = App::new();
+    /// # app.init_resource::<Schedules>();
+    /// #
+    /// # fn my_system() {}
+    /// # fn sys1() {}
+    /// # fn sys2() {}
+    /// #
+    /// // `my_system` will be initialized twice here
+    /// app.add_systems(Update, my_system);
+    /// Initialized::init_systems(&mut app.world, Update, my_system);
+    ///
+    /// // `sys1` will be initialized twice here
+    /// Initialized::init_systems(&mut app.world, Update, sys1);
+    /// Initialized::init_systems(&mut app.world, Update, (sys1, sys2));
+    ///
+    /// // these are two different systems and both will be initialized
+    /// Initialized::init_systems(&mut app.world, Update, || {});
+    /// Initialized::init_systems(&mut app.world, Update, || {});
+    /// ```
     #[track_caller]
-    pub fn init_systems<L: ScheduleLabel>(world: &mut World, schedule: L, systems: S) -> bool {
+    pub fn init_systems<L, S, Marker>(world: &mut World, schedule: L, systems: S) -> bool
+    where
+        L: ScheduleLabel,
+        S: IntoSystemConfigs<Marker> + Send + Sync + 'static,
+    {
         if Initialized::<(L, S)>::init(world) {
             let mut schedules = world.resource_mut::<Schedules>();
-            let schedule = schedules
-                .get_mut(schedule.intern())
-                .unwrap_or_else(|| panic!("Schedule `{schedule:?}` not found"));
-            schedule.add_systems(systems);
+            match schedules.get_mut(schedule.intern()) {
+                Some(schedule) => {
+                    schedule.add_systems(systems);
+                }
+                None => {
+                    let mut schedule = Schedule::new(schedule);
+                    schedule.add_systems(systems);
+                    schedules.insert(schedule);
+                }
+            }
             return true;
         }
         false
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::Initialized;
+    use bevy::prelude::*;
+
+    #[test]
+    fn test_init() {
+        let mut world = World::new();
+        assert!(Initialized::<()>::init(&mut world));
+        assert!(!Initialized::<()>::init(&mut world));
+    }
+
+    #[test]
+    fn test_init_systems() {
+        fn sys1() {}
+        fn sys2() {}
+
+        let mut world = World::new();
+        world.init_resource::<Schedules>();
+
+        assert!(Initialized::init_systems(&mut world, Update, sys1));
+        assert!(!Initialized::init_systems(&mut world, Update, sys1));
+
+        assert!(Initialized::init_systems(&mut world, FixedUpdate, sys1));
+        assert!(!Initialized::init_systems(&mut world, FixedUpdate, sys1));
+
+        assert!(Initialized::init_systems(&mut world, Update, (sys1, sys2)));
+        assert!(!Initialized::init_systems(&mut world, Update, (sys1, sys2)));
+    }
+
+    #[test]
+    fn test_init_closure_system() {
+        let mut world = World::new();
+        world.init_resource::<Schedules>();
+
+        let mut n = 0;
+        for _ in 0..2 {
+            if Initialized::init_systems(&mut world, Update, || {}) {
+                n += 1;
+            }
+        }
+        assert_eq!(n, 1);
     }
 }
